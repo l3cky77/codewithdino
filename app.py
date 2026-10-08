@@ -4,7 +4,15 @@ import os
 
 app = Flask(__name__)
 
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+def get_gemini_client():
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    return genai.Client(api_key=api_key)
+
+
+client = get_gemini_client()
 
 
 @app.route("/")
@@ -34,33 +42,35 @@ def aibot():
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
 
-        message = data.get("message", "").strip()
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid request payload."}), 400
+
+        message = str(data.get("message", "")).strip()
 
         if not message:
-            return jsonify({
-                "error": "Please enter a message."
-            }), 400
+            return jsonify({"error": "Please enter a message."}), 400
 
+        if client is None:
+            return jsonify({"error": "Dino AI is not configured. Please set GEMINI_API_KEY."}), 500
+
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model=model_name,
             contents=message
         )
 
-        return jsonify({
-            "response": response.text
-        })
+        response_text = getattr(response, "text", None)
+        if not response_text:
+            return jsonify({"error": "Dino AI did not return a valid response."}), 500
+
+        return jsonify({"response": response_text})
 
     except Exception as e:
-
         print("AI ERROR:", e)
-
-        return jsonify({
-            "error": "Dino AI could not generate a response."
-        }), 500
+        return jsonify({"error": "Dino AI could not generate a response."}), 500
 
 
 if __name__ == "__main__":
